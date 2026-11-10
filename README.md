@@ -29,11 +29,14 @@ go build -o puqu-print .
 # 连接打印机，打印连接信息并读取设备回包
 ./puqu-print info
 
-# 打印一张标签（PNG/JPEG，自动等比缩放到标签宽度）
+# 打印一张标签（PNG/JPEG）
 ./puqu-print print label.png
 
+# 40mm 窄标签纸：内容居中，两侧各留 4mm 空白
+./puqu-print print label.png -paper-mm 40
+
 # 300 点机型
-./puqu-print print label.png -point 300 -width 576
+./puqu-print print label.png -point 300 -paper-mm 40
 ```
 
 常用参数：
@@ -43,7 +46,19 @@ go build -o puqu-print .
 | `-name` | 设备名关键字，默认 `AQ-` |
 | `-timeout` | 扫描超时，默认 `15s` |
 | `-point` | 设备点位，`200`（默认）或 `300` |
-| `-width` | 点阵宽度，`0` 表示按点位取满宽（200 点为 384，300 点为 576） |
+| `-paper-mm` | 标签纸宽度（毫米），`0` 表示用满打印头 |
+| `-width` | 内容最大点阵宽度，优先级高于 `-paper-mm` |
+| `-align` | 内容对齐方式：`center`（默认）/ `left` / `right` |
+
+### 排版规则
+
+打印头固定是满幅宽（200 点为 384 点 / 48mm，300 点为 576 点），窄标签纸靠留白定位：
+
+- 图片**比可用宽度窄时保持原始点阵尺寸，不放大**，多余的在两侧留白
+- 图片**比可用宽度宽时等比缩小**，不裁切
+- 打印帧头里的「宽度(mm)」始终按打印头满幅填写，与发放的行宽保持一致
+
+例如 40mm 标签纸：`-paper-mm 40` → 内容 320 点，两侧各留 32 点（4mm）。
 
 > 打印前请确认打印机已开机、装好标签纸，并且没有被手机 App 占用连接。
 
@@ -102,8 +117,9 @@ BLE 层没有公开文档，以下格式从官方小程序 SDK
 | `main.go` | CLI 入口：`scan` / `info` / `print` |
 | `internal/puqu/transport.go` | 扫描、连接、GATT 绑定、分包写入、通知回调 |
 | `internal/puqu/protocol.go` | 帧封装、行游程压缩、控制指令、设备参数 |
-| `internal/puqu/bitmap.go` | 图片缩放、二值化、1bit 打包 |
+| `internal/puqu/bitmap.go` | 图片缩放、二值化、1bit 打包、居中留白 |
 | `internal/puqu/image.go` | PNG/JPEG 读取 |
+| `internal/puqu/packet.go` | 设备详情/状态回包解析 |
 
 ## 已知限制
 

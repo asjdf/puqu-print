@@ -52,12 +52,16 @@ func usage() {
   -name string    设备名关键字 (默认 "AQ-")
   -timeout duration
                   扫描超时 (默认 15s)
-  -width int      点阵宽度，0 表示按点位取满宽 (200 点 -> 384, 300 点 -> 576)
   -point int      设备点位，200 或 300 (默认 200)
+  -paper-mm float 标签纸宽度(毫米)，0 = 用满打印头
+  -width int      内容最大点阵宽度；优先级高于 -paper-mm
+  -align string   内容对齐 center|left|right (默认 center)
+
+图片比可用宽度窄时保持原始尺寸、两侧留白，不会被放大；更宽则等比缩小。
 
 示例:
-  puqu-print print label.png
-  puqu-print print label.png -point 300 -width 576
+  puqu-print print label.png -paper-mm 40
+  puqu-print print label.png -point 300 -paper-mm 40 -align left
 `)
 }
 
@@ -178,7 +182,9 @@ func cmdPrint(args []string) error {
 	timeout := fs.Duration("timeout", 15*time.Second, "扫描超时")
 	width := fs.Int("width", 0, "点阵宽度，0 = 按点位取满宽")
 	pointN := fs.Int("point", 200, "设备点位，200 或 300")
-	fs.Parse(args)
+	paperMM := fs.Float64("paper-mm", 0, "标签纸宽度(毫米)，0 = 满打印头")
+	align := fs.String("align", "center", "内容对齐 center|left|right")
+	fs.Parse(reorderArgs(args))
 
 	if fs.NArg() < 1 {
 		return fmt.Errorf("缺少图片路径，例如: puqu-print print label.png")
@@ -187,16 +193,34 @@ func cmdPrint(args []string) error {
 	if point != puqu.Point200 && point != puqu.Point300 {
 		return fmt.Errorf("点位只能是 200 或 300，收到 %d", *pointN)
 	}
-	w := *width
-	if w <= 0 {
-		w = point.MaxWidthDots()
+
+	head := point.MaxWidthDots()
+	content := *width
+	switch {
+	case content > 0:
+	case *paperMM > 0:
+		content = int(*paperMM*float64(point.DotsPerMM()) + 0.5)
+	default:
+		content = head
+	}
+	if content > head {
+		return fmt.Errorf("内容宽度 %d 点超过打印头 %d 点", content, head)
+	}
+	if rem := content % 8; rem != 0 {
+		content += 8 - rem
 	}
 
-	rows, height, err := puqu.LoadImageRows(fs.Arg(0), w)
+	rows, content, height, err := puqu.LoadImageRows(fs.Arg(0), content)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("位图 %d x %d 点，共 %d 行，点位 %d\n", w, height, len(rows), point)
+	offset, err := alignOffset(*align, head, content)
+	if err != nil {
+		return err
+	}
+	rows = puqu.PlaceRows(rows, head, offset)
+	fmt.Printf("内容 %d x %d 点，两侧留白 %d/%d 点，整行 %d 点，共 %d 行，点位 %d\n",
+		content, height, offset, head-content-offset, head, len(rows), point)
 
 	p, err := puqu.Open(*keyword, *timeout)
 	if err != nil {
@@ -206,9 +230,42 @@ func cmdPrint(args []string) error {
 	fmt.Println(p.Status())
 
 	start := time.Now()
-	if err := p.Print(rows, w, point); err != nil {
+	if err := p.Print(rows, head, point); err != nil {
 		return err
 	}
 	fmt.Printf("已发送，用时 %s\n", time.Since(start).Round(time.Millisecond))
 	return nil
+}
+
+func alignOffset(align string, head, content int) (int, error) {
+	switch align {
+	case "center", "":
+		return (head - content) / 2, nil
+	case "left":
+		return 0, nil
+	case "right":
+		return head - content, nil
+	}
+	return 0, fmt.Errorf("对齐方式只能是 center/left/right，收到 %q", align)
+}
+
+// reorderArgs 把选项挪到位置参数前面。
+// Go 的 flag 包遇到第一个非选项参数就停止解析，要支持
+// `print a.png -paper-mm 40` 这种写法就得先把选项挑出来。
+// 本命令的选项都带值，成对搬运即可。
+func reorderArgs(args []string) []string {
+	var opts, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			positional = append(positional, a)
+			continue
+		}
+		opts = append(opts, a)
+		if !strings.Contains(a, "=") && i+1 < len(args) {
+			opts = append(opts, args[i+1])
+			i++
+		}
+	}
+	return append(opts, positional...)
 }

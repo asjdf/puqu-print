@@ -15,9 +15,9 @@ var adapter = bluetooth.DefaultAdapter
 
 // 官方 SDK 里声明的服务/特征候选表，按优先级排列。
 var (
-	serviceCandidates  = []string{"AE30", "AE3A", "FFE0", "18F0", "FE01", "FF00"}
-	writeCandidates    = []string{"AE01", "FFE1"}
-	notifyCandidates   = []string{"AE02", "FFE2"}
+	serviceCandidates = []string{"AE30", "AE3A", "FFE0", "18F0", "FE01", "FF00"}
+	writeCandidates   = []string{"AE01", "FFE1"}
+	notifyCandidates  = []string{"AE02", "FFE2"}
 )
 
 // DefaultNameKeyword 是璞趣 AQ 系列设备广播名的公共前缀。
