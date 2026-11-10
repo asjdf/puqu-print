@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/asjdf/puqu-print/internal/puqu"
@@ -107,10 +108,68 @@ func cmdInfo(args []string) error {
 		select {
 		case b := <-got:
 			fmt.Printf("回包 %2d 字节: %s\n", len(b), puqu.Hex(b))
+			reportPacket(b)
 		case <-deadline:
 			return nil
 		}
 	}
+}
+
+func reportPacket(b []byte) {
+	if d, ok := puqu.ParseDetails(b); ok {
+		fmt.Printf("  设备详情: 浓度 %d  速度 %d  纸张 %s  进纸 %s  自动关机 %s  语言 %s  声音 %s  电量 %d  点位 %d\n",
+			d.Darkness, d.Speed, paperType(d.PaperType), onOff(d.PaperFeed),
+			closeTime(d.Close), language(d.Language), onOff(d.Sound), d.BatteryLevel, d.Point)
+		fmt.Printf("  提示: 本机点位为 %d，打印时用 -point %d\n", d.Point, d.Point)
+	}
+	if s, ok := puqu.ParseState(b); ok {
+		fmt.Printf("  设备状态: 缓存 %d  已处理 %d  打印中 %v  可打印 %v\n",
+			s.CacheSize, s.ProcessedPages, s.Printing, s.Ready())
+		if issues := s.Issues(); len(issues) > 0 {
+			fmt.Println("  异常:", strings.Join(issues, "、"))
+		}
+	}
+}
+
+func paperType(v int) string {
+	switch v {
+	case 1:
+		return "连续纸"
+	case 2:
+		return "间隙纸"
+	case 3:
+		return "黑标纸"
+	case 4:
+		return "黑隙纸"
+	}
+	return fmt.Sprintf("%d", v)
+}
+
+func onOff(v int) string {
+	if v == 1 {
+		return "开"
+	}
+	return "关"
+}
+
+func closeTime(v int) string {
+	names := []string{"5分钟", "15分钟", "30分钟", "1小时", "2小时", "6小时", "永不"}
+	if v >= 1 && v <= len(names) {
+		return names[v-1]
+	}
+	return fmt.Sprintf("%d", v)
+}
+
+func language(v int) string {
+	switch v {
+	case 1:
+		return "简体"
+	case 2:
+		return "繁体"
+	case 3:
+		return "英语"
+	}
+	return fmt.Sprintf("%d", v)
 }
 
 func cmdPrint(args []string) error {
