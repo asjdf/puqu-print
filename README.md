@@ -43,7 +43,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o puqu-print.exe .
 # 300 点机型
 ./puqu-print print label.png -point 300 -paper-mm 40
 
-# 已知地址时跳过扫描直连（Windows 上更稳）
+# 已知地址时跳过扫描直连（Windows 上更稳，地址用 scan 里看到的那条）
 ./puqu-print print label.png -addr AA:BB:CC:DD:EE:FF -paper-mm 40
 ```
 
