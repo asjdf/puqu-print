@@ -1,7 +1,7 @@
-// puqu-print 是璞趣(PUQU)蓝牙标签打印机的 macOS 命令行工具。
+// puqu-print 是璞趣(PUQU)蓝牙标签打印机的命令行工具。
 //
-// 官方只提供 Android/iOS/Windows 客户端，本工具直接复刻了官方 SDK 的 BLE
-// 协议，让 macOS 也能打印标签。
+// 官方只提供 Android/iOS/Windows/小程序客户端，macOS 没有任何官方支持。
+// 本工具直接复刻了官方 SDK 的 BLE 协议，macOS 与 Windows 都能打印标签。
 package main
 
 import (
@@ -49,9 +49,13 @@ func usage() {
   puqu-print print <图片> [选项]      把 PNG/JPEG 打印到标签
 
 选项:
+  -addr string    设备 MAC 地址，填了就跳过扫描直接连接
   -name string    设备名关键字 (默认 "AQ-")
   -timeout duration
                   扫描超时 (默认 15s)
+  -connect-timeout duration
+                  单次连接超时 (默认 45s 即协议上限；Windows 上 BLE 建连可能要几十秒)
+  -retries int    连接失败重试次数 (默认 2，负数表示不重试)
   -point int      设备点位，200 或 300 (默认 200)
   -paper-mm float 标签纸宽度(毫米)，0 = 用满打印头
   -width int      内容最大点阵宽度；优先级高于 -paper-mm
@@ -77,13 +81,36 @@ func cmdScan(args []string) error {
 	})
 }
 
+// connectOptions 组装连接参数，把连接过程打印到 stderr，方便排查 Windows 上的连接问题。
+func connectOptions(timeout time.Duration, retries int) puqu.ConnectOptions {
+	return puqu.ConnectOptions{
+		Timeout: timeout,
+		Retries: retries,
+		OnProgress: func(msg string) {
+			fmt.Fprintln(os.Stderr, "[连接] "+msg)
+		},
+	}
+}
+
+// openPrinter 按 -addr 直连或按 -name 扫描后连接。
+func openPrinter(addr, keyword string, scanTimeout time.Duration, opts puqu.ConnectOptions) (*puqu.Printer, error) {
+	if addr != "" {
+		fmt.Fprintf(os.Stderr, "[连接] 跳过扫描，直接连接 %s\n", addr)
+		return puqu.OpenByAddress(addr, opts)
+	}
+	return puqu.Open(keyword, scanTimeout, opts)
+}
+
 func cmdInfo(args []string) error {
 	fs := flag.NewFlagSet("info", flag.ExitOnError)
 	keyword := fs.String("name", puqu.DefaultNameKeyword, "设备名关键字")
+	addr := fs.String("addr", "", "设备 MAC 地址，填了就跳过扫描直接连接")
 	timeout := fs.Duration("timeout", 15*time.Second, "扫描超时")
+	connectTimeout := fs.Duration("connect-timeout", 45*time.Second, "单次连接超时，协议上限 40.96s")
+	retries := fs.Int("retries", 2, "连接失败重试次数")
 	fs.Parse(args)
 
-	p, err := puqu.Open(*keyword, *timeout)
+	p, err := openPrinter(*addr, *keyword, *timeout, connectOptions(*connectTimeout, *retries))
 	if err != nil {
 		return err
 	}
@@ -179,7 +206,10 @@ func language(v int) string {
 func cmdPrint(args []string) error {
 	fs := flag.NewFlagSet("print", flag.ExitOnError)
 	keyword := fs.String("name", puqu.DefaultNameKeyword, "设备名关键字")
+	addr := fs.String("addr", "", "设备 MAC 地址，填了就跳过扫描直接连接")
 	timeout := fs.Duration("timeout", 15*time.Second, "扫描超时")
+	connectTimeout := fs.Duration("connect-timeout", 45*time.Second, "单次连接超时，协议上限 40.96s")
+	retries := fs.Int("retries", 2, "连接失败重试次数")
 	width := fs.Int("width", 0, "点阵宽度，0 = 按点位取满宽")
 	pointN := fs.Int("point", 200, "设备点位，200 或 300")
 	paperMM := fs.Float64("paper-mm", 0, "标签纸宽度(毫米)，0 = 满打印头")
@@ -222,7 +252,7 @@ func cmdPrint(args []string) error {
 	fmt.Printf("内容 %d x %d 点，两侧留白 %d/%d 点，整行 %d 点，共 %d 行，点位 %d\n",
 		content, height, offset, head-content-offset, head, len(rows), point)
 
-	p, err := puqu.Open(*keyword, *timeout)
+	p, err := openPrinter(*addr, *keyword, *timeout, connectOptions(*connectTimeout, *retries))
 	if err != nil {
 		return err
 	}

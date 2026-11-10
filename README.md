@@ -1,10 +1,11 @@
 # puqu-print
 
-璞趣 PUQU 蓝牙标签打印机的 macOS 命令行工具。
+璞趣 PUQU 蓝牙标签打印机的命令行工具，支持 **macOS 和 Windows**。
 
 官方只提供 Android / iOS / Windows / 小程序 / Web 客户端，Web 版的蓝牙打印还依赖 Windows
-端的 `PUQUPrintService.exe`，**macOS 没有任何官方支持**。本项目直接用 CoreBluetooth
-复刻了官方 SDK 的 BLE 协议，让 Mac 也能扫描、连接并打印标签。
+端的 `PUQUPrintService.exe`，**macOS 没有任何官方支持**。本项目直接用系统 BLE 栈
+（macOS 走 CoreBluetooth，Windows 走 WinRT）复刻了官方 SDK 的 BLE 协议，
+让 Mac 和 Windows 都能扫描、连接并打印标签。
 
 ## 支持的设备
 
@@ -14,10 +15,14 @@
 
 ## 构建
 
-需要 macOS + Go 1.24 以上（依赖 cgo 调用 CoreBluetooth，首次运行会弹蓝牙授权）。
+需要 Go 1.24 以上。
 
 ```bash
+# macOS（依赖 cgo 调用 CoreBluetooth，首次运行会弹蓝牙授权）
 go build -o puqu-print .
+
+# Windows（纯 Go，不需要 cgo）
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o puqu-print.exe .
 ```
 
 ## 用法
@@ -37,18 +42,34 @@ go build -o puqu-print .
 
 # 300 点机型
 ./puqu-print print label.png -point 300 -paper-mm 40
+
+# 已知地址时跳过扫描直连（Windows 上更稳）
+./puqu-print print label.png -addr AA:BB:CC:DD:EE:FF -paper-mm 40
 ```
 
 常用参数：
 
 | 参数 | 说明 |
 | --- | --- |
+| `-addr` | 设备地址，填了就跳过扫描直接连接（Windows 是 MAC，macOS 是 UUID） |
 | `-name` | 设备名关键字，默认 `AQ-` |
 | `-timeout` | 扫描超时，默认 `15s` |
+| `-connect-timeout` | 单次连接超时，默认 `45s`（协议上限 40.96s） |
+| `-retries` | 连接失败重试次数，默认 `2` |
 | `-point` | 设备点位，`200`（默认）或 `300` |
 | `-paper-mm` | 标签纸宽度（毫米），`0` 表示用满打印头 |
 | `-width` | 内容最大点阵宽度，优先级高于 `-paper-mm` |
 | `-align` | 内容对齐方式：`center`（默认）/ `left` / `right` |
+
+### Windows 注意事项
+
+- **BLE 建连很慢是正常现象**：同一台机器上实测 3~40 秒不等，工具会打印每次尝试的耗时。
+  默认 45s 超时 + 2 次重试，连接期间请别让手机 App 同时占用打印机。
+- 已开启的适配器不需要额外配置；工具会自己打开 BLE 扫描。
+- 设备列表里没有名字的条目是 Windows 只给出了 MAC 的普通 BLE 设备，忽略即可；
+  同名设备已按地址去重。
+- 老式 `cmd.exe`（936 代码页）里中文会乱码，先执行 `chcp 65001`，或直接用
+  Windows Terminal / PowerShell 7。
 
 ### 排版规则
 
@@ -116,6 +137,7 @@ BLE 层没有公开文档，以下格式从官方小程序 SDK
 | --- | --- |
 | `main.go` | CLI 入口：`scan` / `info` / `print` |
 | `internal/puqu/transport.go` | 扫描、连接、GATT 绑定、分包写入、通知回调 |
+| `internal/puqu/address_windows.go` / `address_other.go` | 按平台解析目标地址（MAC / UUID） |
 | `internal/puqu/protocol.go` | 帧封装、行游程压缩、控制指令、设备参数 |
 | `internal/puqu/bitmap.go` | 图片缩放、二值化、1bit 打包、居中留白 |
 | `internal/puqu/image.go` | PNG/JPEG 读取 |
@@ -123,10 +145,10 @@ BLE 层没有公开文档，以下格式从官方小程序 SDK
 
 ## 已知限制
 
-- 只实现了位图打印和读取设备回包，`info` 目前把设备回包按原始十六进制打印，
-  字段解码（电量、点位、告警码）尚未实现
+- 只实现了位图打印和读取设备回包，`info` 会解析设备详情/状态，但原始回包仍会一起打印
 - 未实现自动连接、后台保活和打印队列
 - 设备休眠唤醒（`3A 5A 00 00 00 00 00 3A`）指令已记录但未接入
+- USB 打印未实现，当前只走 BLE
 
 ## 参考
 
